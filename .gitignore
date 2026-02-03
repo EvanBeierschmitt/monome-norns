@@ -1,0 +1,10 @@
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# norns / lua build artifacts (defensive)
+*.luac
+

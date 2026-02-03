@@ -1,0 +1,23 @@
+---
+description: Lua style rules to keep code readable and safe
+globs: ["**/*.lua"]
+---
+
+Style rules:
+
+- Use `local` for everything unless norns requires global.
+- Modules must follow:
+
+  local M = {}
+
+  function M.foo()
+  end
+
+  return M
+
+- Prefer explicit names over short Lua idioms.
+- Avoid metatables unless necessary.
+- Avoid clever one-liners; optimize for readability.
+- Every file begins with a short comment explaining what/why.
+- Public functions must have doc comments.
+- Do not leak globals.

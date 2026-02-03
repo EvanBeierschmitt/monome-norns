@@ -1,0 +1,20 @@
+---
+description: Required repository layout and responsibilities
+alwaysApply: true
+---
+
+Expected layout:
+
+- main script file at repo root (entry point)
+- lib/          reusable Lua modules
+- docs/         human documentation
+- data/         presets, fixtures, example state
+- test/         logic tests (not visible in SELECT)
+
+Architectural rules:
+
+- Entry script wires modules together but contains minimal logic.
+- Logic lives in lib/ modules.
+- UI, sequencing, state, MIDI/CV, and persistence should be separated into modules.
+- Modules use `local M = {}` and `return M` pattern.
+- No circular dependencies between modules.

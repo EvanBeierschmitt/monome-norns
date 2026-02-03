@@ -1,0 +1,26 @@
+---
+description: How changes are validated before considered complete
+alwaysApply: true
+---
+
+Every change must pass this checklist:
+
+Smoke test expectations:
+
+- Script boots with no stack traces.
+- Encoders and keys respond without error.
+- screen.redraw() does not error.
+- Preset save/load round trips (if applicable).
+
+Testing strategy:
+
+- Prefer pure Lua unit tests for logic in test/.
+- Mock norns globals when needed.
+- Add tests when modifying sequencing, state, or persistence logic.
+
+Definition of done:
+
+1. No runtime errors on boot
+2. UI stable
+3. Logic tests updated or added
+4. No new globals introduced

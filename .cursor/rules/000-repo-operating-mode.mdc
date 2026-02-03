@@ -1,0 +1,20 @@
+---
+description: How agents must behave in this repository
+alwaysApply: true
+---
+
+This repository is primarily authored by AI agents. Favor safety, minimal changes, and correctness over cleverness.
+
+Rules:
+
+- Never invent norns APIs. Verify against existing repo code or official monome docs.
+- Prefer small, incremental patches over refactors.
+- Do not refactor architecture unless explicitly asked.
+- Leave the repository in a runnable state after every change.
+- When a request is ambiguous, implement the narrowest correct interpretation and explain assumptions.
+- When adding features, also implement:
+  - parameter defaults
+  - persistence (if applicable)
+  - documentation updates
+  - at least one logic test if the change is testable
+- If uncertain, ask for clarification rather than guessing.

@@ -1,0 +1,16 @@
+---
+description: Invariants for sequencing, timing, and state machines
+globs: ["**/*.lua"]
+---
+
+This project contains sequencers and state machines.
+
+These invariants must be preserved:
+
+- Tick loop must be deterministic.
+- No blocking operations inside timing loop.
+- Event ordering must remain stable.
+- Jump/branch behavior must be explicit and documented.
+- State transitions must be pure and testable where possible.
+- Persistence format must be versioned if modified.
+- Randomization must be seedable if applicable.

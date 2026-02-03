@@ -1,0 +1,16 @@
+---
+description: Documentation and release discipline
+alwaysApply: true
+---
+
+When behavior changes, agents must update:
+
+- README.md (user-facing behavior)
+- docs/ relevant page (architecture/UI/MIDI/presets)
+- CHANGELOG.md with clear summary
+
+Documentation audience:
+
+- Maintainer is fluent in Python/SQL but newer to Lua.
+- Prefer clarity over Lua cleverness.
+- Explain why, not just how.

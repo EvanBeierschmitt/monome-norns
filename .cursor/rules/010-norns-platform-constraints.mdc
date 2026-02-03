@@ -1,0 +1,21 @@
+---
+description: Hard constraints of the norns runtime and UI
+globs: ["**/*.lua"]
+---
+
+Assume code runs inside the monome norns Lua environment.
+
+Platform constraints:
+
+- Screen is 128x64, grayscale.
+- Redraws must be efficient and avoid allocations inside hot paths.
+- Avoid creating garbage in timing loops.
+- UI must tolerate slow redraw cadence.
+- Encoders and keys are primary interaction model.
+- Do not assume desktop Lua behavior or external Lua libraries.
+- Avoid global variables unless required by norns conventions.
+
+Script metadata:
+
+- Main script file must include a proper header comment block for the SELECT menu.
+- Folder names like `lib/`, `docs/`, `data/`, `test/` are special and should not contain entry scripts.
