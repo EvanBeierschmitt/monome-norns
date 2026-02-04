@@ -1,0 +1,101 @@
+---
+description: UI guidance – Rossum-inspired interaction patterns for norns (Assimil8or / Control Forge)
+globs: ["lib/ui.lua", "docs/ui.md", "docs/architecture.md"]
+---
+
+UI North Star:
+- Emulate the clarity, density, and confidence of Rossum-style menus: structured pages, consistent navigation, fast parameter access, minimal ornament.
+- Prefer "instrument panel" UX over "app UX": the UI should feel like a dedicated module with predictable controls.
+
+Core norns constraints:
+- Screen is 128x64; avoid clutter; text-first.
+- Never rely on color; use grayscale levels intentionally.
+- Redraw must be cheap; avoid per-frame allocations; redraw only when needed.
+
+Information architecture:
+- Use a 3-tier structure:
+  1) Top status line (context)
+  2) Main content panel (the thing you’re editing/seeing)
+  3) Bottom hint/footer (controls + mode)
+- Always show the user: "Where am I?" + "What am I editing?" + "What will K2/K3 do right now?"
+
+Page model (Rossum-inspired):
+- Model the UI as Pages and Fields.
+- Page = a coherent group of parameters or functions (e.g., Preset, Sequencer, Random, MIDI).
+- Field = one editable item in a list (parameter/value/action).
+- Provide a consistent "cursor" selection system:
+  - One selected field at a time
+  - Selection highlight uses brightness inversion or a bold box (but keep it minimal)
+  - Non-selected fields remain readable at lower brightness
+
+Encoders / keys mapping (consistent across the app):
+- E1: navigation / coarse context shift (page, section, or focus). If page has sub-panels, E1 switches panels.
+- E2: move selection (field up/down). If list is short, E2 cycles.
+- E3: edit selected field’s value.
+- K1: system-reserved on norns (always opens system menu); script never receives K1. Do not rely on K1 for modifier or any script action; use K2/K3 and E1–E3 only.
+- K2: back/cancel; short press = back; long press (optional) = jump to home.
+- K3: enter/commit/perform action. For toggles: K3 toggles when field type is boolean/action.
+
+Field types (standardize behavior):
+- Numeric: E3 adjusts; K3 resets to default (optional); show units if meaningful.
+- Enum: E3 cycles; K3 toggles direction or resets (optional).
+- Toggle: K3 toggles; E3 may also toggle (but keep consistent).
+- Action: K3 executes; require a confirm step for destructive actions.
+- Text/name: edit via modal or constrained chooser; do not attempt freeform typing without a plan.
+
+Parameter editing conventions (Control Forge vibe):
+- Always show the "value" with tight formatting and consistent alignment.
+- Use "coarse/fine" editing:
+  - Default E3 = fine
+  - Coarse via params or alternate binding (K1 is system-reserved on norns; K1+E3 is not available)
+- Clamp and display boundaries (min/max) implicitly by not allowing illegal values.
+
+Rhythm of navigation:
+- No dead ends: every page has a clear Back behavior (K2).
+- Never require more than 3 actions to reach a commonly-used parameter from Home.
+- Prefer predictable cycling over deep nested menus. If nesting is needed, keep depth ≤ 2.
+
+Feedback + safety:
+- Any action that changes state must give immediate visual confirmation:
+  - Example: brief status text in footer ("saved preset", "randomized", "midi learned")
+- Destructive actions must use a two-step confirm:
+  - First press K3 on action shows "CONFIRM" state
+  - Second press K3 within a timeout executes
+  - K2 cancels
+
+Visual system (Rossum-inspired minimalism):
+- Typography: prioritize legibility; avoid tiny dense fonts; keep to standard norns text.
+- Use brightness levels as hierarchy:
+  - Title/context: medium-high
+  - Selected field: high (or inverted)
+  - Non-selected fields: medium/low but readable
+  - Hints: low
+- Alignment rules:
+  - Left column: label
+  - Right column: value (right-aligned where possible)
+  - Keep columns consistent across pages
+
+Scrolling lists:
+- Use a fixed number of visible rows (typically 4–6).
+- Always keep the selected row visible.
+- Show a subtle scroll indicator only if needed (e.g., "2/9" in footer).
+
+Modal overlays (use sparingly):
+- Allowed: confirm dialogs, quick pickers, help overlay.
+- Must be dismissible via K2.
+- Must not break encoder/key mapping rules.
+
+Performance rules:
+- Only set redraw-needed flag when state actually changes.
+- Avoid constructing strings/tables every redraw; cache formatted strings if hot.
+- Keep UI logic separate from state transitions. UI may request changes; state owns truth.
+
+Docs requirement:
+- Any new page or major interaction change must update docs/ui.md:
+  - Page list
+  - Encoder/key mapping
+  - Any confirm flows
+  - Any global conventions (coarse/fine, long-press behavior)
+
+If a requested UI behavior conflicts with these conventions:
+- Propose the closest compliant alternative and state the tradeoff.

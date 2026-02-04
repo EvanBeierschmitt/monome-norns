@@ -11,28 +11,24 @@ local repo_root = (function()
   return path
 end)()
 
+-- Lib lives under lines/lib/ when run from repo root
+local lines_lib = repo_root .. "/lines/lib"
 package.path = package.path .. ";" .. repo_root .. "/?.lua"
 
--- Minimal norns mock so libs that expect include() can be stubbed
-local _norns_mock = {}
-function _norns_mock.include(name)
+-- Mock norns include() so lines/lib/*.lua can load (paths like "lib/state")
+function include(name)
   local modpath = name:gsub("%.", "/") .. ".lua"
-  local f, err = loadfile(repo_root .. "/" .. modpath)
+  local f, err = loadfile(lines_lib .. "/../" .. modpath)
+  if not f then
+    f, err = loadfile(repo_root .. "/" .. modpath)
+  end
   if not f then error("include " .. name .. ": " .. tostring(err)) end
   return f()
 end
 
--- Load State without norns (no include() used in state.lua)
-local State
-do
-  local path = repo_root .. "/lib/state.lua"
-  local f, err = loadfile(path)
-  if not f then
-    print("ERROR: cannot load lib/state.lua: " .. tostring(err))
-    os.exit(1)
-  end
-  State = f()
-end
+local State = include("lib/state")
+local Segment = include("lib/segment")
+local Preset = include("lib/preset")
 
 local passed = 0
 local failed = 0
@@ -47,51 +43,72 @@ local function ok(cond, msg)
   end
 end
 
+-- Segment
+local seg = Segment.default()
+ok(seg ~= nil, "Segment.default() returns table")
+ok(seg.shape == "linear", "segment.shape default")
+ok(seg.level_mode == "abs", "segment.level_mode default")
+local ok_seg, err_seg = Segment.validate(seg, -5, 5)
+ok(ok_seg == true and err_seg == nil, "Segment.validate(valid) passes")
+local ok_bad = Segment.validate({ shape = "invalid" }, -5, 5)
+ok(ok_bad == false, "Segment.validate(invalid shape) fails")
+
+-- Preset
+local p = Preset.new("p1", "Preset 1")
+ok(p ~= nil and p.id == "p1" and p.name == "Preset 1", "Preset.new() returns preset")
+ok(#p.segments == 8, "preset has 8 segments")
+local ok_p, err_p = Preset.validate(p, -5, 5)
+ok(ok_p == true and err_p == nil, "Preset.validate(valid) passes")
+
 -- State.new()
 local s = State.new()
 ok(s ~= nil, "State.new() returns table")
-ok(type(s.page) == "number", "state.page is number")
-ok(type(s.page_count) == "number", "state.page_count is number")
-ok(type(s.counter) == "number", "state.counter is number")
-ok(type(s.is_running) == "boolean", "state.is_running is boolean")
+ok(s.screen == State.SCREEN_MAIN_MENU, "state.screen default main_menu")
+ok(type(s.main_menu_index) == "number", "state.main_menu_index is number")
+ok(type(s.presets) == "table", "state.presets is table")
+ok(type(s.line_count) == "number", "state.line_count is number")
+ok(type(s.selected_line) == "number", "state.selected_line is number")
 
 -- State.validate()
 local ok_v, err_v = State.validate(s)
 ok(ok_v == true and err_v == nil, "State.validate(valid state) passes")
 local ok_b, err_b = State.validate({})
 ok(ok_b == false and err_b ~= nil, "State.validate(invalid) fails with message")
-local ok_n = State.validate(123)
-ok(ok_n == false, "State.validate(non-table) fails")
 
--- State.on_enc()
-s.page = 1
-s.page_count = 2
+-- State.on_enc() main menu
+s.screen = State.SCREEN_MAIN_MENU
+s.main_menu_index = 1
 State.on_enc(s, 1, 1)
-ok(s.page == 2, "enc 1 +1 moves page to 2")
+ok(s.main_menu_index == 2, "enc 1 on main menu moves selection")
 State.on_enc(s, 1, 1)
-ok(s.page == 2, "enc 1 +1 at max page stays 2")
+State.on_enc(s, 1, 1)
+ok(s.main_menu_index == 4, "enc 1 at max stays 4")
 State.on_enc(s, 1, -1)
-ok(s.page == 1, "enc 1 -1 moves page to 1")
 State.on_enc(s, 1, -1)
-ok(s.page == 1, "enc 1 -1 at min page stays 1")
+ok(s.main_menu_index == 2, "enc 1 -1 moves selection")
 
-s.counter = 0
-State.on_enc(s, 2, 3)
-ok(s.counter == 3, "enc 2 adds delta to counter")
+-- State.on_enc() preset editor
+s.screen = State.SCREEN_PRESET_EDITOR
+s.editor_segment_index = 1
+s.editor_param_index = 1
+s.presets = { Preset.new("p1", "P1") }
+s.editing_preset_index = 1
+State.on_enc(s, 1, 1)
+ok(s.editor_segment_index == 2, "enc 1 in editor moves segment")
+State.on_enc(s, 2, 1)
+ok(s.editor_param_index == 2, "enc 2 in editor moves param")
+local seg1 = s.presets[1].segments[1]
+local t0 = seg1.time
+State.on_enc(s, 3, 1)
+ok(seg1.time == t0 + 1, "enc 3 in editor changes time")
 
--- State.on_key()
-s.is_running = false
-State.on_key(s, 2, 1)
-ok(s.is_running == true, "key 2 press toggles is_running on")
-State.on_key(s, 2, 1)
-ok(s.is_running == false, "key 2 press toggles is_running off")
-
-s.counter = 10
-State.on_key(s, 3, 1)
-ok(s.counter == 0, "key 3 press resets counter")
-
-State.on_key(s, 1, 0)
-ok(s.is_running == false, "key 1 release does not change state")
+-- State.on_key() main menu enter (K3 = enter per 070)
+s.screen = State.SCREEN_MAIN_MENU
+s.main_menu_index = State.MENU_PRESETS_LIST
+s.presets = {}
+local action = State.on_key(s, 3, 1)
+ok(action == "open_presets_list", "K3 on Presets opens presets list")
+ok(s.screen == State.SCREEN_PRESETS_LIST, "screen is presets list")
 
 print("")
 print(string.format("Result: %d passed, %d failed", passed, failed))
