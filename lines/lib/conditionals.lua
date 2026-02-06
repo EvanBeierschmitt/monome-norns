@@ -4,7 +4,7 @@
 local M = {}
 
 local COMPARISONS = { ">", ">=", "<", "<=", "=", "<>", "><" }
-local INPUT_SOURCES = { "cv1", "cv2", "line1", "line2", "line3", "line4" }
+local INPUT_SOURCES = { "off", "cv1", "cv2", "line1", "line2", "line3", "line4" }
 
 --- All comparison operators.
 --- @return table
@@ -24,6 +24,7 @@ end
 --- @return boolean result
 function M.evaluate(condition, inputs)
   if not condition or not inputs then return false end
+  if condition.input == "off" then return false end
   local v = inputs[condition.input]
   if v == nil then return false end
   local val = condition.value or 0

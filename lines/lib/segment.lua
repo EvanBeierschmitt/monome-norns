@@ -11,17 +11,18 @@ M.PING_INCREMENT = "increment"
 M.PING_DECREMENT = "decrement"
 M.PING_RESET = "reset"
 
---- Default condition slot (assignable to Jump or Ping). When met, overrides default jump/ping.
---- @return table { assign_to, input, comparison, value, value_lo, value_hi, jump_to_segment, jump_to_preset_id, ping_line, ping_action }
-function M.default_condition()
+--- Default condition slot. Per-segment: input, comparison, value_mode, value(s), jump/ping targets.
+--- @return table { input, comparison, value_mode, value, value_lo, value_hi, jump_to_segment, jump_to_preset_id, ping_line, ping_action }
+function M.default_condition(cond_id)
+  local input = (cond_id == 1) and "cv1" or "cv2"
   return {
-    assign_to = nil,
-    input = "cv1",
+    input = input,
     comparison = ">",
+    value_mode = "abs",
     value = 0,
     value_lo = nil,
     value_hi = nil,
-    jump_to_segment = nil,
+    jump_to_segment = 0,
     jump_to_preset_id = nil,
     ping_line = nil,
     ping_action = nil,
@@ -31,24 +32,27 @@ end
 --- Default segment (single segment). Each segment gets fresh cond1/cond2 tables.
 --- @return table segment table
 function M.default()
-  local function dc()
+  local function dc(id)
     return {
-      assign_to = nil, input = "cv1", comparison = ">", value = 0, value_lo = nil, value_hi = nil,
-      jump_to_segment = nil, jump_to_preset_id = nil, ping_line = nil, ping_action = nil,
+      input = (id == 1) and "cv1" or "cv2",
+      comparison = ">", value_mode = "abs", value = 0, value_lo = nil, value_hi = nil,
+      jump_to_segment = 0, jump_to_preset_id = nil, ping_line = nil, ping_action = nil,
     }
   end
   return {
     shape = "linear",
     level_mode = "abs",
     level_value = 0,
+    level_range = 0,
+    level_random = nil,
     time = 1,
     time_unit = "sec",
     jump_to_segment = nil,
     jump_to_preset_id = nil,
     ping_line = nil,
     ping_action = nil,
-    cond1 = dc(),
-    cond2 = dc(),
+    cond1 = dc(1),
+    cond2 = dc(2),
   }
 end
 
@@ -61,6 +65,12 @@ end
 --- All valid level modes.
 --- @return table list of level mode strings
 function M.level_modes()
+  return LEVEL_MODES
+end
+
+--- All valid condition value modes (same as level: abs, absQ, rel, relQ).
+--- @return table list of mode strings
+function M.cond_value_modes()
   return LEVEL_MODES
 end
 
@@ -113,8 +123,8 @@ function M.validate(seg, voltage_lo, voltage_hi)
     return false, "time_unit must be sec or beats"
   end
   if seg.jump_to_segment ~= nil then
-    if type(seg.jump_to_segment) ~= "number" or seg.jump_to_segment < 1 or seg.jump_to_segment > 8 then
-      return false, "jump_to_segment must be 1..8 or nil"
+    if type(seg.jump_to_segment) ~= "number" or seg.jump_to_segment < 0 or seg.jump_to_segment > 8 then
+      return false, "jump_to_segment must be 0 (stop), 1..8, or nil"
     end
   end
   if seg.jump_to_preset_id ~= nil and type(seg.jump_to_preset_id) ~= "string" then
@@ -131,15 +141,39 @@ function M.validate(seg, voltage_lo, voltage_hi)
       return false, "ping_action must be increment|decrement|reset or nil"
     end
   end
-  if seg.cond1 and (seg.cond1.assign_to ~= nil or seg.cond1.input ~= nil) then
+  if seg.cond1 then
     if type(seg.cond1.value) ~= "number" then
       return false, "cond1.value must be number"
     end
+    if seg.cond1.value_mode then
+      found = false
+      for _, m in ipairs(LEVEL_MODES) do
+        if m == seg.cond1.value_mode then found = true break end
+      end
+      if not found then
+        return false, "cond1.value_mode must be abs, absQ, rel, or relQ"
+      end
+    end
   end
-  if seg.cond2 and (seg.cond2.assign_to ~= nil or seg.cond2.input ~= nil) then
+  if seg.cond2 then
     if type(seg.cond2.value) ~= "number" then
       return false, "cond2.value must be number"
     end
+    if seg.cond2.value_mode then
+      found = false
+      for _, m in ipairs(LEVEL_MODES) do
+        if m == seg.cond2.value_mode then found = true break end
+      end
+      if not found then
+        return false, "cond2.value_mode must be abs, absQ, rel, or relQ"
+      end
+    end
+  end
+  if type(seg.level_range) == "number" and seg.level_range < 0 then
+    return false, "level_range must be >= 0"
+  end
+  if seg.level_random ~= nil and seg.level_random ~= "linear" and seg.level_random ~= "gaussian" and seg.level_random ~= "off" then
+    return false, "level_random must be nil, off, linear, or gaussian"
   end
   return true, nil
 end
