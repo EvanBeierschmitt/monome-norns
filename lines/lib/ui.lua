@@ -305,6 +305,15 @@ function M:draw_preset_editor(add)
     return
   end
   self:draw_status(p.name or p.id or "Preset", add)
+  if self.state.preset_editor_blocked_playing then
+    add("move", 4, Y_CONTENT_START)
+    add("level", LEVEL_SELECTED)
+    add("text", "Stop playback to edit")
+    add("move", 4, Y_CONTENT_START + 12)
+    add("level", LEVEL_HINT)
+    add("text", "Stop in sequencer or press K3 in editor")
+    return
+  end
   local seg_idx = self.state.editor_segment_index or 1
   local param_idx = self.state.editor_param_index or 0
   local param_names = {
@@ -354,7 +363,7 @@ function M:draw_preset_editor(add)
     elseif param_id == State.PARAM_LEVEL_RANGE then val = string.format("%.2f", seg.level_range or 0)
     elseif param_id == State.PARAM_LEVEL_RANDOM then
       val = (seg.level_random == "gaussian" and "Gaussian") or (seg.level_random == "linear" and "linear") or "off"
-    elseif param_id == State.PARAM_SHAPE then val = seg.shape or "linear"
+    elseif param_id == State.PARAM_SHAPE then val = Segment.shape_display_name(seg.shape) or "Linear"
     elseif param_id == State.PARAM_JUMP_SEGMENT then
       if seg.jump_to_segment then val = "seg " .. seg.jump_to_segment else val = "stop" end
     elseif param_id == State.PARAM_JUMP_PRESET then
@@ -469,7 +478,7 @@ function M:draw_preset_sequencer(add)
   if #available_actions == 0 or action_idx < 1 or action_idx > #available_actions then
     action_idx = 1
   end
-  local action_id_to_name = { [State.SEQ_ACTION_EDIT] = "Edit", [State.SEQ_ACTION_COPY] = "Copy", [State.SEQ_ACTION_PASTE] = "Paste", [State.SEQ_ACTION_DELETE] = "Delete", [State.SEQ_ACTION_ADD] = "Add", [State.SEQ_ACTION_REPLACE] = "Replace" }
+  local action_id_to_name = { [State.SEQ_ACTION_EDIT] = "Edit", [State.SEQ_ACTION_COPY] = "Copy", [State.SEQ_ACTION_PASTE] = "Paste", [State.SEQ_ACTION_DELETE] = "Delete", [State.SEQ_ACTION_ADD] = "Add", [State.SEQ_ACTION_REPLACE] = "Replace", [State.SEQ_ACTION_PLAY_STOP] = (s.sequencer_running and "Stop" or "Play") }
   local action_name = action_id_to_name[available_actions[action_idx]] or "Add"
   if action_name == "Paste" and s.clipboard_preset then
     action_name = "Paste: " .. (s.clipboard_preset.name or s.clipboard_preset.id or "?")
@@ -477,6 +486,9 @@ function M:draw_preset_sequencer(add)
   local total_slots = #ids
   local visible_rows = math.floor(CONTENT_H / ROW_H)
   self:draw_status("Preset Sequencer  L" .. line, add)
+  add("move", VALUE_X_RIGHT, Y_STATUS)
+  add("level", LEVEL_SELECTED)
+  add("text_right", s.sequencer_running and "■" or "▶")
   if total_slots == 0 then
     add("move", 4, Y_CONTENT_START)
     add("level", LEVEL_UNSELECTED)

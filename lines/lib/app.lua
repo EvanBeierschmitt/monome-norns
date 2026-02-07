@@ -17,6 +17,7 @@ function M.new()
     ui = nil,
     redraw_metro = nil,
     text_scroll_metro = nil,
+    run_gate_metro = nil,
   }
   setmetatable(app, { __index = M })
   return app
@@ -31,6 +32,10 @@ local DEBUG_JUMP_PRESET = true
 function M:init()
   if DEBUG_SEQUENCER_ADD then _G.LINES_DEBUG_SEQUENCER_ADD = true end
   if DEBUG_JUMP_PRESET then _G.LINES_DEBUG_JUMP_PRESET = true end
+  -- Clear any script previously uploaded to Crow (stops "attempt to call nil value (global 'connected')" from Crow REPL).
+  pcall(function()
+    if crow and crow.clear then crow.clear() end
+  end)
   self:setup_params()
   if params then
     self.state.line_count = params:get("line_count") or 4
@@ -42,11 +47,22 @@ function M:init()
   self:start_redraw_metro()
   self:start_text_scroll_metro()
   self:project_try_fast_load()
+  -- Skip CV input streaming: norns crow library uploads a script to Crow that calls global connected(),
+  -- which is nil on Crow REPL and causes "attempt to call a nil value (global 'connected')". Until the
+  -- norns crow lib is fixed, run gate from CV (Settings > Run: CV1/CV2) won't read voltage; run is treated as always high.
+  -- if CrowIo.connected and CrowIo.connected() and CrowIo.set_cv_streaming then
+  --   CrowIo.set_cv_streaming()
+  -- end
+  self:start_run_gate_metro()
 end
 
 --- Setup params (norns paramset). Lines settings.
 function M:setup_params()
   if not params then return end
+  -- Skip adding params if already present (e.g. after warmreload); avoids parameter ID collision.
+  if params.lookup and params.lookup["lines_menu_sel"] then
+    return
+  end
   params:add_separator("lines")
   -- Workaround when enc/key don't reach script: navigate main menu via params
   params:add {
@@ -453,7 +469,8 @@ function M:key(n, z)
     if self.ui then self.ui:set_dirty(true) end
   end
 
-  if n == 3 and z == 1 and self.state.screen == State.SCREEN_PRESET_EDITOR then
+  -- K3 in preset editor: toggle play this preset on selected line. Only when we didn't just open the editor with this key (action ~= "open_preset_editor"); opening from presets list must not start playback.
+  if n == 3 and z == 1 and self.state.screen == State.SCREEN_PRESET_EDITOR and action ~= "open_preset_editor" then
     local p = State.get_editing_preset(self.state)
     local play = self.state.playing
     if p and play then
@@ -466,7 +483,8 @@ function M:key(n, z)
         play.preset_id = p.id
         play.running = true
         local bpm = (params and params.get and params:get("bpm")) or 120
-        CrowIo.play_preset(play.line, p, function()
+        local preset_snapshot = State.copy_preset(p)
+        CrowIo.play_preset(play.line, preset_snapshot or p, function()
           if self.state.playing.preset_id == p.id and self.state.playing.line == play.line then
             self.state.playing.running = false
           end
@@ -505,7 +523,8 @@ function M:key(n, z)
     return
   end
 
-  if action == "sequencer_action" and self.state.screen == State.SCREEN_PRESET_SEQUENCER and n == 3 and z == 1 then
+  -- Only run sequencer Play/Stop (or other sequencer action) when actually on the Preset Sequencer screen, not on the Presets list.
+  if action == "sequencer_action" and self.state.screen ~= State.SCREEN_PRESETS_LIST and self.state.screen == State.SCREEN_PRESET_SEQUENCER and n == 3 and z == 1 then
     self:handle_sequencer_k3()
   end
 
@@ -624,12 +643,28 @@ function M:handle_sequencer_k3()
     end
     return
   end
+  if action_id == State.SEQ_ACTION_PLAY_STOP then
+    if s.sequencer_running then
+      self:sequencer_stop()
+    else
+      self:sequencer_start()
+    end
+    if self.ui then self.ui:set_dirty(true) end
+    if redraw then redraw() end
+    return
+  end
 end
 
---- Start sequencer: play first preset on each line.
+--- Start sequencer: play first preset on each line. Gated by run CV when Settings > Run is CV1/CV2.
 function M:sequencer_start()
   local s = self.state
-  s.sequencer_running = true
+  s.sequencer_play_requested = true
+  local run_cv = s.run_cv or 1
+  if run_cv == 3 or not CrowIo.get_run_high or CrowIo.get_run_high(run_cv) then
+    s.sequencer_running = true
+  else
+    return
+  end
   for line = 1, s.line_count do
     local row = s.sequences[line]
     if row then
@@ -641,7 +676,8 @@ function M:sequencer_start()
         local preset = self:preset_by_id(pid)
         if preset then
           local bpm = (params and params.get and params:get("bpm")) or 120
-          CrowIo.play_preset(line, preset, function()
+          local preset_snapshot = State.copy_preset(preset)
+          CrowIo.play_preset(line, preset_snapshot or preset, function()
             self:sequencer_line_done(line)
           end, function(tgt_line, action)
             self:sequencer_ping(tgt_line, action)
@@ -652,6 +688,8 @@ function M:sequencer_start()
       end
     end
   end
+  if self.ui then self.ui:set_dirty(true) end
+  if redraw then redraw() end
 end
 
 --- When a line's preset finishes: advance slot and play next or stop.
@@ -665,7 +703,8 @@ function M:sequencer_line_done(line)
     local preset = self:preset_by_id(ids[row.playing_slot])
     if preset then
       local bpm = (params and params.get and params:get("bpm")) or 120
-      CrowIo.play_preset(line, preset, function()
+      local preset_snapshot = State.copy_preset(preset)
+      CrowIo.play_preset(line, preset_snapshot or preset, function()
         self:sequencer_line_done(line)
       end, function(tgt_line, action)
         self:sequencer_ping(tgt_line, action)
@@ -703,7 +742,8 @@ function M:sequencer_ping(target_line, action)
   local preset = self:preset_by_id(ids[slot])
   if preset then
     local bpm = (params and params.get and params:get("bpm")) or 120
-    CrowIo.play_preset(target_line, preset, function()
+    local preset_snapshot = State.copy_preset(preset)
+    CrowIo.play_preset(target_line, preset_snapshot or preset, function()
       self:sequencer_line_done(target_line)
     end, function(tgt_line, act)
       self:sequencer_ping(tgt_line, act)
@@ -715,15 +755,24 @@ function M:sequencer_ping(target_line, action)
   if redraw then redraw() end
 end
 
---- Stop all lines and sequencer.
-function M:sequencer_stop()
+--- Stop all lines and sequencer. When clear_play_requested is true (e.g. user pressed Stop), clear play request so run gate won't auto-start.
+--- @param clear_play_requested boolean default true
+function M:sequencer_stop(clear_play_requested)
   local s = self.state
+  if clear_play_requested ~= false then
+    s.sequencer_play_requested = false
+  end
   s.sequencer_running = false
+  if CrowIo and CrowIo.stop_all_segment_metros then
+    CrowIo.stop_all_segment_metros()
+  end
   for line = 1, 4 do
     if CrowIo.stop_line then CrowIo.stop_line(line) end
     local row = s.sequences and s.sequences[line]
     if row then row.running = false end
   end
+  if self.ui then self.ui:set_dirty(true) end
+  if redraw then redraw() end
 end
 
 --- Find preset by id in state.presets.
@@ -734,9 +783,12 @@ function M:preset_by_id(id)
   return nil
 end
 
---- Return current CV inputs for conditional evaluation. Stub: zeros; later wire Crow input and line voltages.
+--- Return current CV inputs for conditional evaluation. From Crow when connected.
 --- @return table { cv1, cv2, line1, line2, line3, line4 }
 function M:get_cv_inputs()
+  if CrowIo.connected and CrowIo.connected() and CrowIo.get_cv_inputs then
+    return CrowIo.get_cv_inputs()
+  end
   return {
     cv1 = 0, cv2 = 0,
     line1 = 0, line2 = 0, line3 = 0, line4 = 0,
@@ -1098,8 +1150,36 @@ function M:redraw()
   return nil
 end
 
+--- Run gate metro: when Run CV is CV1/CV2, start sequencer when run goes high (if play requested), stop when run goes low.
+function M:start_run_gate_metro()
+  if self.run_gate_metro then return end
+  self.run_gate_metro = metro.init()
+  self.run_gate_metro.time = 0.05
+  self.run_gate_metro.count = -1
+  self.run_gate_metro.event = function()
+    local s = self.state
+    if not s or not CrowIo.get_run_high then return end
+    local run_cv = s.run_cv or 1
+    if run_cv == 3 then return end
+    local run_high = CrowIo.get_run_high(run_cv)
+    if run_high and s.sequencer_play_requested and not s.sequencer_running then
+      self:sequencer_start()
+    elseif not run_high and s.sequencer_running then
+      self:sequencer_stop(false)
+    end
+  end
+  self.run_gate_metro:start()
+end
+
 --- Cleanup: stop metro, stop sequencer and Crow playback. Call from global cleanup().
 function M:cleanup()
+  if CrowIo and CrowIo.stop_all_segment_metros then
+    CrowIo.stop_all_segment_metros()
+  end
+  if self.run_gate_metro then
+    self.run_gate_metro:stop()
+    self.run_gate_metro = nil
+  end
   if self.state then
     if self.state.sequencer_running then
       self:sequencer_stop()

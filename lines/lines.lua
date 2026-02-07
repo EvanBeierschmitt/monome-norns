@@ -2,6 +2,19 @@
 -- v0.1.0 @evanbeierschmitt
 -- Sequencable function generator for Crow CV. Inspired by Control Forge.
 
+-- Workaround: on hot reload, norns clock can try to resume stale coroutines (bad argument #1 to 'resume' (thread expected)).
+-- If clock is global and has resume, wrap it to ignore invalid threads so the script loads cleanly.
+do
+  local c = _G.clock
+  if c and type(c.resume) == "function" then
+    local orig = c.resume
+    c.resume = function(thread, ...)
+      if type(thread) == "thread" then return orig(thread, ...) end
+      return nil
+    end
+  end
+end
+
 -- Build draw commands entirely in script so no module code runs during redraw (norns errors otherwise).
 local Segment = include("lib/segment")
 local State = include("lib/state")
@@ -289,7 +302,7 @@ local function build_draw_commands(state)
                 end
               elseif param_id == 5 then val = string.format("%.2f", seg.level_range or 0)
               elseif param_id == 6 then val = (seg.level_random == "gaussian" and "Gaussian") or (seg.level_random == "linear" and "linear") or "off"
-              elseif param_id == 7 then val = seg.shape or "linear"
+              elseif param_id == 7 then val = Segment.shape_display_name(seg.shape) or "Linear"
               elseif param_id == 8 then val = seg.jump_to_segment and ("seg " .. seg.jump_to_segment) or "stop"
               elseif param_id == 9 then
                 if seg.jump_to_preset_id then
@@ -402,7 +415,7 @@ local function build_draw_commands(state)
     if #available_actions == 0 or action_idx < 1 or action_idx > #available_actions then
       action_idx = 1
     end
-    local action_id_to_name = { [State.SEQ_ACTION_EDIT] = "Edit", [State.SEQ_ACTION_COPY] = "Copy", [State.SEQ_ACTION_PASTE] = "Paste", [State.SEQ_ACTION_DELETE] = "Delete", [State.SEQ_ACTION_ADD] = "Add", [State.SEQ_ACTION_REPLACE] = "Replace" }
+    local action_id_to_name = { [State.SEQ_ACTION_EDIT] = "Edit", [State.SEQ_ACTION_COPY] = "Copy", [State.SEQ_ACTION_PASTE] = "Paste", [State.SEQ_ACTION_DELETE] = "Delete", [State.SEQ_ACTION_ADD] = "Add", [State.SEQ_ACTION_REPLACE] = "Replace", [State.SEQ_ACTION_PLAY_STOP] = (s.sequencer_running and "Stop" or "Play") }
     local action_name = action_id_to_name[available_actions[action_idx]] or "Add"
     if action_name == "Paste" and s.clipboard_preset then
       action_name = "Paste: " .. (s.clipboard_preset.name or s.clipboard_preset.id or "?")
@@ -414,6 +427,7 @@ local function build_draw_commands(state)
     local scroll_max = math.max(0, logical_rows - visible_rows)
     local scroll_offset = math.max(0, math.min(R - visible_rows + 1, scroll_max))
     add("move", 4, Y_STATUS); add("level", LEVEL_TITLE); add("text", "Preset Sequencer  L" .. line)
+    add("move", VALUE_X_RIGHT, Y_STATUS); add("level", LEVEL_SELECTED); add("text_right", s.sequencer_running and "■" or "▶")
     if total_slots == 0 then
       add("move", 4, Y_CONTENT_START); add("level", LEVEL_UNSELECTED); add("text", "(empty)")
     else
@@ -574,16 +588,38 @@ end
 local init_error = nil
 local App = nil
 local app = nil
+local init_redraw_metro = nil
 
 function init()
   init_error = nil
   local ok, err = pcall(function()
     App = include("lib/app")
-    app = App.new()
-    app:init()
   end)
   if not ok then
-    init_error = tostring(err)
+    init_error = "include app: " .. tostring(err)
+    if print then print("[lines] init error: " .. init_error) end
+    app = nil
+    -- skip rest
+  else
+    ok, err = pcall(function()
+      app = App.new()
+    end)
+    if not ok then
+      init_error = "App.new: " .. tostring(err)
+      if print then print("[lines] init error: " .. init_error) end
+      app = nil
+    else
+      ok, err = pcall(function()
+        app:init()
+      end)
+      if not ok then
+        init_error = "app:init: " .. tostring(err)
+        if print then print("[lines] init error: " .. init_error) end
+        app = nil
+      end
+    end
+  end
+  if init_error then
     app = nil
   end
   -- Ensure norns can find enc/key (script env may redirect; register explicitly)
@@ -598,13 +634,16 @@ function init()
   if redraw then redraw() end
   -- One-shot metro for initial redraw delay (avoid clock.run coroutine; can break on script clear/warmreload)
   if metro then
-    local init_redraw = metro.init()
-    init_redraw.time = 0.1
-    init_redraw.count = 1
-    init_redraw.event = function()
+    -- Clear ref only; do not call metro:stop()—if it already fired, stopping causes pthread_cancel errors.
+    init_redraw_metro = nil
+    init_redraw_metro = metro.init()
+    init_redraw_metro.time = 0.1
+    init_redraw_metro.count = 1
+    init_redraw_metro.event = function()
       if redraw then redraw() end
+      init_redraw_metro = nil
     end
-    init_redraw:start()
+    init_redraw_metro:start()
   end
 end
 
@@ -633,9 +672,14 @@ function redraw()
       screen.level(15)
       screen.move(4, 16)
       screen.text("Lines: init error")
-      screen.move(4, 32)
-      screen.text((init_error .. ""):gsub("%s+", " "):sub(1, 28))
-      screen.move(4, 48)
+      local msg = (init_error .. ""):gsub("%s+", " ")
+      screen.move(4, 28)
+      screen.text(msg:sub(1, 56))
+      if #msg > 56 then
+        screen.move(4, 38)
+        screen.text(msg:sub(57, 112))
+      end
+      screen.move(4, 52)
       screen.text("See Maiden for full msg")
       screen.update()
     end
@@ -703,5 +747,7 @@ function redraw()
 end
 
 function cleanup()
+  -- Clear ref only; do not call metro:stop()—if it already fired, stopping causes pthread_cancel errors.
+  init_redraw_metro = nil
   if app ~= nil then app:cleanup() end
 end

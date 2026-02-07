@@ -3,8 +3,45 @@
 
 local M = {}
 
-local SHAPES = { "linear", "sine", "square", "log", "exp" }
+-- Control Forge transition shapes (44). IDs are key-friendly; use shape_display_name() for UI.
+local SHAPES = {
+  "linear",
+  "exponential_1", "exponential_2", "exponential_3", "exponential_4", "exponential_5", "exponential_6", "exponential_7",
+  "circle_1_4", "circle_1_6", "circle_1_8", "circle_1_16",
+  "squeeze",
+  "fast_line_1", "fast_line_2", "fast_line_3",
+  "medium_line_1", "medium_line_2",
+  "slow_ramp_1", "slow_ramp_2",
+  "bloom", "bloom_2",
+  "circle_1_16_reverse", "circle_1_8_reverse", "circle_1_6_reverse", "circle_1_4_reverse",
+  "slow_curve_1", "slow_curve_2",
+  "delay_dc", "dc_delay",
+  "curve_2x", "curve_2x_b", "curve_2x_c",
+  "zig_zag_1", "zig_zag_2", "zig_zag_3",
+  "chaos_03", "chaos_06", "chaos_12", "chaos_16", "chaos_25", "chaos_33", "chaos_37", "chaos_50",
+}
 local LEVEL_MODES = { "abs", "absQ", "rel", "relQ" }
+
+-- Display labels for shape param (Control Forge manual names).
+local SHAPE_DISPLAY = {
+  linear = "Linear",
+  exponential_1 = "Exponential 1", exponential_2 = "Exponential 2", exponential_3 = "Exponential 3",
+  exponential_4 = "Exponential 4", exponential_5 = "Exponential 5", exponential_6 = "Exponential 6", exponential_7 = "Exponential 7",
+  circle_1_4 = "Circle 1.4", circle_1_6 = "Circle 1.6", circle_1_8 = "Circle 1.8", circle_1_16 = "Circle 1.16",
+  squeeze = "Squeeze",
+  fast_line_1 = "Fast Line 1", fast_line_2 = "Fast Line 2", fast_line_3 = "Fast Line 3",
+  medium_line_1 = "Medium Line 1", medium_line_2 = "Medium Line 2",
+  slow_ramp_1 = "Slow Ramp 1", slow_ramp_2 = "Slow Ramp 2",
+  bloom = "Bloom", bloom_2 = "Bloom 2",
+  circle_1_16_reverse = "Circle 1.16 Reverse", circle_1_8_reverse = "Circle 1.8 Reverse",
+  circle_1_6_reverse = "Circle 1.6 Reverse", circle_1_4_reverse = "Circle 1.4 Reverse",
+  slow_curve_1 = "Slow Curve 1", slow_curve_2 = "Slow Curve 2",
+  delay_dc = "Delay DC", dc_delay = "DC Delay",
+  curve_2x = "Curve 2X", curve_2x_b = "Curve 2X B", curve_2x_c = "Curve 2X C",
+  zig_zag_1 = "Zig Zag 1", zig_zag_2 = "Zig Zag 2", zig_zag_3 = "Zig Zag 3",
+  chaos_03 = "Chaos 03", chaos_06 = "Chaos 06", chaos_12 = "Chaos 12", chaos_16 = "Chaos 16",
+  chaos_25 = "Chaos 25", chaos_33 = "Chaos 33", chaos_37 = "Chaos 37", chaos_50 = "Chaos 50",
+}
 
 --- Ping actions (for segment.ping_action).
 M.PING_INCREMENT = "increment"
@@ -62,6 +99,14 @@ function M.shapes()
   return SHAPES
 end
 
+--- Display name for shape param (Control Forge manual names).
+--- @param shape_id string e.g. "exponential_1"
+--- @return string e.g. "Exponential 1", or shape_id if unknown
+function M.shape_display_name(shape_id)
+  if not shape_id then return "linear" end
+  return SHAPE_DISPLAY[shape_id] or shape_id
+end
+
 --- All valid level modes.
 --- @return table list of level mode strings
 function M.level_modes()
@@ -87,13 +132,13 @@ function M.validate(seg, voltage_lo, voltage_hi)
   voltage_lo = voltage_lo or -5
   voltage_hi = voltage_hi or 5
 
-  local found
-  found = false
+  local found = false
   for _, s in ipairs(SHAPES) do
     if s == seg.shape then found = true break end
   end
   if not found then
-    return false, "invalid shape"
+    -- Migrate old shapes (sine, square, log, exp) to linear so saved presets stay valid.
+    seg.shape = "linear"
   end
 
   found = false

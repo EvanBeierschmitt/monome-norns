@@ -67,7 +67,8 @@ M.SEQ_ACTION_PASTE = 3
 M.SEQ_ACTION_DELETE = 4
 M.SEQ_ACTION_ADD = 5
 M.SEQ_ACTION_REPLACE = 6
-M.SEQ_ACTION_COUNT = 6
+M.SEQ_ACTION_PLAY_STOP = 7
+M.SEQ_ACTION_COUNT = 7
 
 --- Create new application state.
 --- @return table state
@@ -99,10 +100,12 @@ function M.new()
     preset_sequencer_cursor = 1,
     preset_sequencer_action_index = 1,
     sequencer_running = false,
+    sequencer_play_requested = false,
     settings_field_index = 1,
     preset_delete_candidate = nil,
     editing_name_position = 1,
     preset_name_before_edit = nil,
+    preset_editor_blocked_playing = false,
     pending_name_save_confirm = false,
     preset_name_edit_mode = false,
     preset_name_edit_buffer = "",
@@ -244,6 +247,12 @@ function M.on_enc(state, n, d)
       end
       return
     end
+    local p_editing = M.get_editing_preset(state)
+    if p_editing and state.playing and state.playing.running and state.playing.preset_id == p_editing.id then
+      state.preset_editor_blocked_playing = true
+      return
+    end
+    state.preset_editor_blocked_playing = false
     if n == 1 then
       state.editor_segment_index = clamp(state.editor_segment_index + (d > 0 and 1 or -1), 1, Preset.max_segments())
     elseif n == 2 then
@@ -255,7 +264,7 @@ function M.on_enc(state, n, d)
         state.editor_param_index = clamp(state.editor_param_index + (d > 0 and 1 or -1), 0, nvis - 1)
       end
     elseif n == 3 then
-      local p = M.get_editing_preset(state)
+      local p = p_editing or M.get_editing_preset(state)
       local seg = p and p.segments and p.segments[state.editor_segment_index]
       local visible = M.visible_editor_params(seg)
       local current_param_id = visible and visible[state.editor_param_index + 1]
@@ -639,6 +648,7 @@ function M.sequencer_available_actions(state)
   if #list == 0 then
     list[#list + 1] = M.SEQ_ACTION_ADD
   end
+  table.insert(list, 1, M.SEQ_ACTION_PLAY_STOP)
   return list
 end
 
@@ -839,6 +849,7 @@ function M.on_key(state, n, z)
     return nil
   end
 
+  -- K3 Play/Stop (and other sequencer actions) only on Preset Sequencer screen, not on Presets list.
   if state.screen == M.SCREEN_PRESET_SEQUENCER then
     if n == 2 then
       state.screen = M.SCREEN_MAIN_MENU
